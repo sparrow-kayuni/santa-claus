@@ -19,6 +19,7 @@ sem_t rd_count_sem;
 sem_t rd_shed_sem;
 sem_t message_sem;
 sem_t done_list_sem;
+sem_t christmas_sem;
 
 std::queue<std::thread::id> job_q;
 std::queue<std::thread::id> ready_q;
@@ -26,11 +27,12 @@ std::queue<std::thread::id> paused_q;
 std::vector<std::thread::id> done_list;
 std::vector<std::thread::id> rd_shed;
 
-const int NUM_OF_ELVES = 100;
+const int NUM_OF_ELVES = 500;
 const int NUM_OF_REINDEER = 9;
 int elf_count;
 int rd_count;
 int day;
+int year;
 bool gone_for_christmas = false;
 bool rd_are_ready = false;
 
@@ -98,18 +100,15 @@ void reindeer_process(){
         std::this_thread::get_id(), rd_count);
     sem_post(&message_sem);
 
-    int shed_size = 0;
-
     sem_wait(&rd_shed_sem);
     rd_shed.push_back(std::this_thread::get_id());
-    shed_size = rd_shed.size();
     sem_post(&rd_shed_sem);
 
-    //if not all reindeers are back, 
-    while(!gone_for_christmas) std::this_thread::yield();
+    //if not all reindeers are back, yield to other threads
+    while(rd_shed.size() < 9) std::this_thread::yield();
 
     sem_wait(&message_sem);
-    printf("\tReindeer %d is gettin hitched!\n", std::this_thread::get_id());
+    printf("\tReindeer %d is getting hitched!\n", std::this_thread::get_id());
     sem_post(&message_sem);
 
     sem_wait(&rd_shed_sem);
@@ -135,14 +134,13 @@ void reindeers(){
 
     //days to christmas
     while(day < 357 && !gone_for_christmas){  
-        urgency_factor = (357 - day) * 1.2;
 
         rand_val = rand() % 100;
 
         //let reindeer come back at random
-        if(rand_val < 100 - urgency_factor && i < NUM_OF_REINDEER){
+        if(i < NUM_OF_REINDEER){
             reindeer_ths[i] = std::thread(&reindeer_process);
-            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
 
         //when there are nine reindeer, end loop
@@ -159,9 +157,16 @@ void reindeers(){
 
     rd_are_ready = true;
 
+    sem_wait(&christmas_sem);
+
     for(int i = 0; i < NUM_OF_REINDEER; i++){
+        sem_wait(&message_sem);
+        printf("\tReindeer %d has gone for vacation!!\n", reindeer_ths[i].get_id());
+        sem_post(&message_sem);
         reindeer_ths[i].join();
     }
+
+    sem_post(&christmas_sem);
 }
 
 void init_semaphores(){
@@ -174,6 +179,7 @@ void init_semaphores(){
     sem_init(&done_list_sem, 0, 1);
     sem_init(&elf_sem, 0, 3);
     sem_init(&rd_sem, 0, 9);
+    sem_init(&christmas_sem, 0, 1);
 }
 
 void north_pole(){
@@ -184,6 +190,12 @@ void north_pole(){
 
     srand(time(0));
     do{
+        if(day == 0){
+            sem_wait(&message_sem);
+            printf("YEAR %d\n_______________________\n", year);
+            sem_post(&message_sem);
+        }
+
         sem_wait(&message_sem);
         printf("Day: %d\n", day);
         sem_post(&message_sem);
@@ -194,15 +206,28 @@ void north_pole(){
 
         if(day == 354){
             sem_wait(&message_sem);
-            printf("\nSanta is ready for christmas!!!\n");
+            printf("\tSanta is ready for christmas!!!\n");
             sem_post(&message_sem);
+
+            sem_wait(&christmas_sem);
 
             gone_for_christmas = true;
         }
 
-        if(day > 365) {
+        if(day == 364){
+            sem_wait(&message_sem);
+            printf("\tSanta is back from christmas!!!\n");
+            sem_post(&message_sem);
+
+            gone_for_christmas = false;
+        }
+
+        if(day >= 365) {
+            sem_post(&christmas_sem);
             day = 0;
+            year++;
             reindeers_th.join();
+            continue;
         }
 
         // elves randomly need help
@@ -232,7 +257,8 @@ void north_pole(){
 int main(){
     elf_count = 0;
     rd_count = 0;
-    day = 0;
+    day = 300;
+    year = 0;
 
     init_semaphores();
 
